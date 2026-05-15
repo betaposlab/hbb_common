@@ -695,6 +695,12 @@ message OptionMessage {
   BoolOption disable_camera = 17;
   BoolOption terminal_persistent = 18;
   BoolOption show_my_cursor = 19;
+  // ChainRemote: 호스트 측 가상 다운스케일.
+  //   width,height > 0  → 캡처 직후 BGRA 를 이 크기로 libyuv ARGBScale (Lanczos) 다운샘플 → 인코딩.
+  //                       호스트의 실제 디스플레이는 안 바뀜. 4K 호스트 → Mac 에서 FHD 로 또렷.
+  //   width,height = 0  → 원본 해상도 그대로 (기존 동작).
+  // RustDesk 의 DisplayResolution (Misc) 는 진짜 디스플레이 해상도를 바꾸는 명령이라 별개임.
+  Resolution virtual_display = 20;
 }
 
 message TestDelay {
