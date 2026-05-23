@@ -750,6 +750,19 @@ impl Config {
         }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
+            // ChainRemote 포터블(ChainGo) 모드: SFX 래퍼가 init 시점에 APP_DIR 을
+            // %TEMP%\ChainGo_<rand>\config 로 박아둠. 데스크톱에서도 APP_DIR 이
+            // 비어있지 않으면 그걸 우선 사용 — id/key_pair/peers 캐시가 거기로 가고
+            // 종료 시 SFX 가 temp 폴더 통째로 정리하면 호스트 PC 흔적 0.
+            // (정상 설치 빌드는 APP_DIR 가 비어있어 ProjectDirs 분기로 떨어짐.)
+            {
+                let app_dir = APP_DIR.read().unwrap().clone();
+                if !app_dir.is_empty() {
+                    let mut path: PathBuf = app_dir.into();
+                    path.push(p);
+                    return path;
+                }
+            }
             #[cfg(not(target_os = "macos"))]
             let org = "".to_owned();
             #[cfg(target_os = "macos")]
@@ -809,6 +822,23 @@ impl Config {
             // \\ServerName\pipe\PipeName
             // where ServerName is either the name of a remote computer or a period, to specify the local computer.
             // https://docs.microsoft.com/en-us/windows/win32/ipc/pipe-names
+            //
+            // ChainRemote 포터블(ChainGo): 호스트 PC 에 정식 ChainRemote 가 깔려있을 때
+            // 같은 파이프 이름이면 포터블이 호스트의 IPC 에 잘못 붙어버림 (single-instance
+            // 충돌). APP_DIR 가 비어있지 않으면(=포터블 모드) APP_DIR 해시를 파이프 이름에
+            // 끼워 격리. 정식 빌드(APP_DIR 비어있음)는 기존과 동일.
+            let app_dir = APP_DIR.read().unwrap().clone();
+            if !app_dir.is_empty() {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                app_dir.hash(&mut h);
+                return format!(
+                    "\\\\.\\pipe\\{}_portable_{:x}\\query{}",
+                    *APP_NAME.read().unwrap(),
+                    h.finish(),
+                    postfix
+                );
+            }
             format!(
                 "\\\\.\\pipe\\{}\\query{}",
                 *APP_NAME.read().unwrap(),
