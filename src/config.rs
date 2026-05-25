@@ -830,10 +830,14 @@ impl Config {
             //
             // ChainRemote 포터블(ChainGo): 호스트 PC 에 정식 ChainRemote 가 깔려있을 때
             // 같은 파이프 이름이면 포터블이 호스트의 IPC 에 잘못 붙어버림 (single-instance
-            // 충돌). APP_DIR 가 비어있지 않으면(=포터블 모드) APP_DIR 해시를 파이프 이름에
-            // 끼워 격리. 정식 빌드(APP_DIR 비어있음)는 기존과 동일.
-            let app_dir = APP_DIR.read().unwrap().clone();
-            if !app_dir.is_empty() {
+            // 충돌). ChainGo SFX 가 inner process 에 박은 env CHAINREMOTE_PORTABLE_DIR 로만
+            // 포터블 판별. APP_DIR 자체는 정식 Flutter UI 도 mainInit 시 박으므로 portable
+            // 판별 기준으로 못 씀 (2026-05-26 사고 원인 — Phase 3-Win 영구비번 IPC 깨짐).
+            let is_portable = std::env::var_os("CHAINREMOTE_PORTABLE_DIR")
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            if is_portable {
+                let app_dir = APP_DIR.read().unwrap().clone();
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 app_dir.hash(&mut h);
