@@ -108,7 +108,12 @@ lazy_static::lazy_static! {
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    pub static ref APP_NAME: RwLock<String> = RwLock::new("RustDesk".to_owned());
+    // ChainRemote Phase 3-Win (2026-05-25): RustDesk → ChainRemote.
+    // 영향: 서비스명, 레지스트리 키, 데이터 경로, 단축아이콘, 방화벽 규칙, 로그 디렉터리 등
+    // 모든 시스템 통합이 이 한 줄을 따라 자동 변경. 옛 RustDesk 데이터는 src/chainremote_migrate
+    // 가 새 경로로 복사 (멱등성 마커 + 안전 복사).
+    // ChainGo 포터블 모드는 core_main 에서 별도로 'ChainGo' 로 덮어씀.
+    pub static ref APP_NAME: RwLock<String> = RwLock::new("ChainRemote".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
     pub static ref NEW_STORED_PEER_CONFIG: Mutex<HashSet<String>> = Default::default();
