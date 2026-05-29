@@ -230,9 +230,24 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
                     let mut keybuf = pk;
                     keybuf.resize(secretbox::KEYBYTES, 0);
                     let pk_key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
-                    return secretbox::open(data, &nonce, &pk_key);
+                    let pk_res = secretbox::open(data, &nonce, &pk_key);
+                    // ChainRemote 진단성 강화 (2026-05-29): 두 키 모두 실패한 케이스만 로그.
+                    // 광범위 비번 다이얼로그 사고 (Chang 우리집 사건 등) 재현 시 단서가 0
+                    // 이라 미궁이었던 점 해소. data 자체는 안 찍어서 평문 노출 risk 없음.
+                    if pk_res.is_err() {
+                        crate::log::warn!(
+                            "[password_security] symmetric_crypt decrypt failed for both uuid+pk keys (data_len={})",
+                            data.len()
+                        );
+                    }
+                    return pk_res;
                 }
             }
+            // pk 없거나 uuid==pk 인 케이스도 진단 가치 — 잘 못 본 시나리오.
+            crate::log::warn!(
+                "[password_security] symmetric_crypt decrypt failed; no pk fallback available (data_len={})",
+                data.len()
+            );
         }
         res
     }
