@@ -2725,6 +2725,19 @@ pub fn is_outgoing_only() -> bool {
         .map_or(false, |x| x == ("outgoing"))
 }
 
+/// 옵션 B+ — outgoing-only HQ 빌드인데 `chainremote-allow-incoming` 토글로 incoming 도 받는 PC.
+/// (Chang 집 윈컴, 재성이 컴 — 사무실 Mac → 본인 PC 원격용. 2026-05-21 도입.)
+/// heartbeat 모듈이 이 토글도 게이트로 인정 → 패널 거래처 풀에 살아있음 표시.
+/// 2026-05-29 추가 — 옵션 B+ PC 가 패널에서 "n일 전" 표시되는 결함 해소.
+#[inline]
+pub fn is_option_b_plus() -> bool {
+    if !is_outgoing_only() {
+        return false;
+    }
+    let val = Config::get_option("chainremote-allow-incoming");
+    val == "Y" || val == "y" || val == "true"
+}
+
 #[inline]
 fn is_some_hard_opton(name: &str) -> bool {
     HARD_SETTINGS
