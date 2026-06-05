@@ -2738,6 +2738,19 @@ pub fn is_option_b_plus() -> bool {
     val == "Y" || val == "y" || val == "true"
 }
 
+/// 옵션 B+ "빌드 마커" — custom.txt 의 `"option-b-plus":"Y"` (top-level). 설치 시점(install_me)에
+/// HARD_SETTINGS 로 읽힘. 런타임 토글(is_option_b_plus = chainremote-allow-incoming)과 별개.
+/// 이 마커가 있으면 HQ(outgoing) 빌드라도 install_me 가 서비스를 생성 → 로그인 전 incoming
+/// (대리점 HQ 재시작 후 피지원) 가능. 토글은 설치 후 OFF 라 install 시점엔 마커로만 판단 가능.
+#[inline]
+pub fn is_option_b_plus_build() -> bool {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("option-b-plus")
+        .map_or(false, |x| x == "Y" || x == "y" || x == "true")
+}
+
 #[inline]
 fn is_some_hard_opton(name: &str) -> bool {
     HARD_SETTINGS
