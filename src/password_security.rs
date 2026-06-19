@@ -75,6 +75,15 @@ pub fn has_valid_password() -> bool {
 }
 
 pub fn approve_mode() -> ApproveMode {
+    // [ChainRemote] 거래처(수신전용=conn-type:incoming) 빌드는 정책상 항상 클릭수락.
+    //   approve-mode 옵션이 custom.txt 미로드 / 서비스 config dir 불일치(LocalService↔LocalSystem) 등으로
+    //   누락되면 기본값 Both 로 무음 강등 → 자동생성 임시비번(has_valid_password=true)이라 수락카드 분기가
+    //   스킵되고, 재접속이 HQ 가 캐시한 임시비번으로 자동수락(영구비번 유령)된다. conn-type=incoming 은
+    //   custom.txt 최상위 HARD_SETTINGS = 취약한 옵션해석과 무관한 빌드 불변값이라 이걸로 강제한다.
+    //   RestartRemoteDevice grace(파일기반)는 approve_mode 와 무관 → 정상 재시작 재접속 1회 자동수락 유지.
+    if crate::config::is_incoming_only() {
+        return ApproveMode::Click;
+    }
     let mode = Config::get_option("approve-mode");
     if mode == "password" {
         ApproveMode::Password
