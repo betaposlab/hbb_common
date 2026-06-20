@@ -2751,6 +2751,40 @@ pub fn is_option_b_plus_build() -> bool {
         .map_or(false, |x| x == "Y" || x == "y" || x == "true")
 }
 
+/// 거래처 agent 자가등록(⑤ auto-enroll) — custom.txt 의 top-level 키. 설치 시점 HARD_SETTINGS 로 읽힘.
+/// tenant-slug + enroll-key = per-tenant 인증(평문은 그 tenant agent custom.txt 에만, 서버 DB 엔 enroll-key
+/// 의 sha-256 해시만). customer-name = 인스톨러가 첫설치 시 받은 상호(enroll 시 거래처명; 없으면 빈 문자열).
+/// 셋 다 없으면(옛 빌드) agent 는 enroll 안 하고 register-heartbeat-token 폴백 = 후방호환.
+#[inline]
+pub fn get_enroll_tenant_slug() -> String {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("tenant-slug")
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[inline]
+pub fn get_enroll_key() -> String {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("enroll-key")
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[inline]
+pub fn get_enroll_customer_name() -> String {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("customer-name")
+        .cloned()
+        .unwrap_or_default()
+}
+
 #[inline]
 fn is_some_hard_opton(name: &str) -> bool {
     HARD_SETTINGS
