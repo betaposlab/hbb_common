@@ -1034,18 +1034,31 @@ impl Config {
 
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut id = 0u32;
             if let Ok(Some(ma)) = mac_address::get_mac_address() {
-                for x in &ma.bytes()[2..] {
-                    id = (id << 8) | (*x as u32);
+                // ChainRemote: MAC 6바이트(48비트) → "AB12345678"(대문자2 + 숫자8 0패딩).
+                //   결정적(같은 MAC=같은 ID, 재설치/포맷 안정) + 공간 26²×10⁸=676억 → 사업화
+                //   15만대 충돌 ~0. 화면표시만 "AB 1234 5678"(id_formatter). 기존 9자리 숫자 ID 와
+                //   공존(둘 다 문자열). 멀티 NIC 는 OS 가 고른 기본 NIC MAC 사용(기존 동작 유지).
+                let mut m: u64 = 0;
+                for x in ma.bytes().iter() {
+                    m = (m << 8) | (*x as u64);
                 }
-                id &= 0x1FFFFFFF;
+                let id = Self::format_ab_id(m);
                 log::info!("Generated id {}", id);
-                Some(id.to_string())
+                Some(id)
             } else {
                 None
             }
         }
+    }
+
+    /// 48비트 값 → "AB12345678" (대문자 2 + 숫자 8 0패딩). 결정적. get_auto_id/update_id 공용.
+    fn format_ab_id(m: u64) -> String {
+        let digits = (m % 100_000_000) as u32; // 하위 → 숫자 8 (0~99,999,999)
+        let letters = ((m / 100_000_000) % (26 * 26)) as u32; // 상위 → 글자 2 (0~675)
+        let l1 = (b'A' + (letters / 26) as u8) as char;
+        let l2 = (b'A' + (letters % 26) as u8) as char;
+        format!("{}{}{:08}", l1, l2, digits)
     }
 
     pub fn get_auto_password(length: usize) -> String {
@@ -1253,10 +1266,13 @@ impl Config {
     }
 
     pub fn update_id() {
-        // to-do: how about if one ip register a lot of ids?
         let id = Self::get_id();
+        // ChainRemote: 충돌(UUID_MISMATCH) 해소용. MAC 파생을 그대로 쓰면 같은 충돌이 재발하므로
+        //   랜덤 AB 형식(같은 공간 26²×10⁸)으로 새로 뽑는다. 기기지문 앵커가 이 ID 변경을 흡수
+        //   (패널이 machine_uuid 로 같은 거래처를 알아보고 remote_id 만 갱신 → 상호 따라옴).
         let mut rng = rand::thread_rng();
-        let new_id = rng.gen_range(1_000_000_000..2_000_000_000).to_string();
+        let m: u64 = rng.gen_range(0..(26u64 * 26 * 100_000_000));
+        let new_id = Self::format_ab_id(m);
         Config::set_id(&new_id);
         log::info!("id updated from {} to {}", id, new_id);
     }
@@ -3272,6 +3288,47 @@ mod tests {
         let cfg: PeerConfig = Default::default();
         let res = toml::to_string_pretty(&cfg);
         assert!(res.is_ok());
+    }
+
+    // ChainRemote: AB12345678 ID 형식 — get_auto_id(MAC파생)/update_id(랜덤) 공용 매핑.
+    #[test]
+    fn test_format_ab_id_shape() {
+        // 어떤 입력이든 "대문자2 + 숫자8" 총 10자(0패딩). HQ 표시 형식 "AB 1234 5678" 의 토대.
+        for m in [0u64, 1, 99_999_999, 100_000_000, 12_345_678, u32::MAX as u64, u64::MAX] {
+            let id = Config::format_ab_id(m);
+            assert_eq!(id.len(), 10, "len for {}: {}", m, id);
+            let b = id.as_bytes();
+            assert!(
+                b[0].is_ascii_uppercase() && b[1].is_ascii_uppercase(),
+                "letters {}: {}",
+                m,
+                id
+            );
+            assert!(
+                id[2..].bytes().all(|c| c.is_ascii_digit()),
+                "digits {}: {}",
+                m,
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_ab_id_known_values() {
+        assert_eq!(Config::format_ab_id(0), "AA00000000");
+        assert_eq!(Config::format_ab_id(99_999_999), "AA99999999");
+        assert_eq!(Config::format_ab_id(100_000_000), "AB00000000"); // 글자 1 → AB
+        assert_eq!(Config::format_ab_id(26 * 100_000_000), "BA00000000"); // 글자 26 → BA
+        assert_eq!(&Config::format_ab_id(675 * 100_000_000)[..2], "ZZ"); // 최대 글자 675
+        assert_eq!(&Config::format_ab_id(676 * 100_000_000)[..2], "AA"); // 26² wrap
+    }
+
+    #[test]
+    fn test_format_ab_id_deterministic() {
+        // 같은 입력(=같은 MAC) → 항상 같은 ID. 재설치/포맷-같은랜카드 ID 불변의 근거.
+        let m = 0x0123_4567_89ABu64;
+        assert_eq!(Config::format_ab_id(m), Config::format_ab_id(m));
+        assert_ne!(Config::format_ab_id(m), Config::format_ab_id(m + 1)); // 다른 MAC → 다른 ID
     }
 
     #[test]

@@ -375,6 +375,24 @@ pub fn get_uuid() -> Vec<u8> {
     Config::get_key_pair().1
 }
 
+/// ChainRemote 앵커용 기기지문 — 거래처를 "바뀌는 ID"가 아니라 "안정적 기기"에 묶기 위함.
+/// 진짜 machine_uid(Windows=MachineGuid, 재설치/랜카드교체/ID충돌에 안정)만 반환하고,
+/// 읽기 실패 시 **빈 문자열**(get_uuid 처럼 공개키로 폴백하지 않음 — 패널이 빈값은 매칭에서
+/// 제외해 "지문 불량 기기끼리 오매칭"을 막는 폴백 안전장치). enroll/heartbeat 로 패널에 전송.
+pub fn get_machine_fingerprint() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        match machine_uid::get() {
+            Ok(id) => id.trim().to_string(),
+            Err(_) => String::new(),
+        }
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        String::new()
+    }
+}
+
 #[inline]
 pub fn get_time() -> i64 {
     std::time::SystemTime::now()
