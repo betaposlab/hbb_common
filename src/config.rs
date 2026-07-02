@@ -108,11 +108,10 @@ lazy_static::lazy_static! {
     static ref ONLINE: Mutex<HashMap<String, i64>> = Default::default();
     pub static ref PROD_RENDEZVOUS_SERVER: RwLock<String> = RwLock::new("".to_owned());
     pub static ref EXE_RENDEZVOUS_SERVER: RwLock<String> = Default::default();
-    // ChainRemote Phase 3-Win (2026-05-25): RustDesk → ChainRemote.
-    // 영향: 서비스명, 레지스트리 키, 데이터 경로, 단축아이콘, 방화벽 규칙, 로그 디렉터리 등
-    // 모든 시스템 통합이 이 한 줄을 따라 자동 변경. 옛 RustDesk 데이터는 src/chainremote_migrate
-    // 가 새 경로로 복사 (멱등성 마커 + 안전 복사).
-    // ChainGo 포터블 모드는 core_main 에서 별도로 'ChainGo' 로 덮어씀.
+    // Phase 3-Win (2026-05-25): RustDesk → ChainRemote. 서비스명, 레지스트리 키, 데이터 경로,
+    // 단축아이콘, 방화벽 규칙, 로그 디렉터리 등 모든 시스템 통합이 이 한 줄을 따라 바뀐다.
+    // 옛 RustDesk 데이터는 src/chainremote_migrate 가 새 경로로 옮긴다(멱등성 마커 + 안전 복사).
+    // 포터블 모드에선 core_main 이 이 값을 'ChainGo' 로 덮어쓴다.
     pub static ref APP_NAME: RwLock<String> = RwLock::new("ChainRemote".to_owned());
     static ref KEY_PAIR: Mutex<Option<KeyPair>> = Default::default();
     static ref USER_DEFAULT_CONFIG: RwLock<(UserDefaultConfig, Instant)> = RwLock::new((UserDefaultConfig::load(), Instant::now()));
@@ -755,11 +754,11 @@ impl Config {
         }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            // ChainRemote 포터블(ChainGo) 모드: SFX 래퍼가 init 시점에 APP_DIR 을
-            // %TEMP%\ChainGo_<rand>\config 로 박아둠. 데스크톱에서도 APP_DIR 이
-            // 비어있지 않으면 그걸 우선 사용 — id/key_pair/peers 캐시가 거기로 가고
-            // 종료 시 SFX 가 temp 폴더 통째로 정리하면 호스트 PC 흔적 0.
-            // (정상 설치 빌드는 APP_DIR 가 비어있어 ProjectDirs 분기로 떨어짐.)
+            // 포터블(ChainGo) 모드: SFX 래퍼가 init 시점에 APP_DIR 을
+            // %TEMP%\ChainGo_<rand>\config 로 잡아둔다. 데스크톱에서도 APP_DIR 이 비어있지
+            // 않으면 그걸 우선 쓴다 — id/key_pair/peers 캐시가 거기로 가고, 종료 시 SFX 가
+            // temp 폴더를 통째로 지우면 호스트 PC 에 흔적이 안 남는다.
+            // (정상 설치 빌드는 APP_DIR 이 비어 ProjectDirs 분기로 간다.)
             {
                 let app_dir = APP_DIR.read().unwrap().clone();
                 if !app_dir.is_empty() {
@@ -828,11 +827,11 @@ impl Config {
             // where ServerName is either the name of a remote computer or a period, to specify the local computer.
             // https://docs.microsoft.com/en-us/windows/win32/ipc/pipe-names
             //
-            // ChainRemote 포터블(ChainGo): 호스트 PC 에 정식 ChainRemote 가 깔려있을 때
-            // 같은 파이프 이름이면 포터블이 호스트의 IPC 에 잘못 붙어버림 (single-instance
-            // 충돌). ChainGo SFX 가 inner process 에 박은 env CHAINREMOTE_PORTABLE_DIR 로만
-            // 포터블 판별. APP_DIR 자체는 정식 Flutter UI 도 mainInit 시 박으므로 portable
-            // 판별 기준으로 못 씀 (2026-05-26 사고 원인 — Phase 3-Win 영구비번 IPC 깨짐).
+            // 포터블(ChainGo): 호스트 PC 에 정식 ChainRemote 가 깔려 있는데 파이프 이름이
+            // 같으면 포터블이 호스트의 IPC 에 잘못 붙는다(single-instance 충돌). 판별은 반드시
+            // SFX 가 inner process 에 심은 env CHAINREMOTE_PORTABLE_DIR 로만 한다. APP_DIR 은
+            // 정식 Flutter UI 도 mainInit 에서 채우므로 기준으로 못 쓴다 — 2026-05-26 Phase
+            // 3-Win 영구비번 IPC 를 이걸로 헷갈려 깨먹은 적이 있다.
             let is_portable = std::env::var_os("CHAINREMOTE_PORTABLE_DIR")
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
@@ -1035,10 +1034,11 @@ impl Config {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             if let Ok(Some(ma)) = mac_address::get_mac_address() {
-                // ChainRemote: MAC 6바이트(48비트) → "AB12345678"(대문자2 + 숫자8 0패딩).
-                //   결정적(같은 MAC=같은 ID, 재설치/포맷 안정) + 공간 26²×10⁸=676억 → 사업화
-                //   15만대 충돌 ~0. 화면표시만 "AB 1234 5678"(id_formatter). 기존 9자리 숫자 ID 와
-                //   공존(둘 다 문자열). 멀티 NIC 는 OS 가 고른 기본 NIC MAC 사용(기존 동작 유지).
+                // MAC 6바이트(48비트) → "AB12345678"(대문자2 + 숫자8, 0패딩). 결정적이라
+                //   같은 MAC 이면 같은 ID 가 나오고 재설치/포맷에도 안정적이다. 공간은
+                //   26²×10⁸ = 676억이라 15만대 규모에서도 충돌은 사실상 0. 표시만 "AB 1234 5678"
+                //   (id_formatter). 기존 9자리 숫자 ID 와 공존한다(둘 다 문자열). 멀티 NIC 는 OS 가
+                //   고른 기본 NIC MAC 을 쓴다(기존 동작 유지).
                 let mut m: u64 = 0;
                 for x in ma.bytes().iter() {
                     m = (m << 8) | (*x as u64);
@@ -1052,7 +1052,7 @@ impl Config {
         }
     }
 
-    /// 48비트 값 → "AB12345678" (대문자 2 + 숫자 8 0패딩). 결정적. get_auto_id/update_id 공용.
+    /// 48비트 값 → "AB12345678"(대문자 2 + 숫자 8, 0패딩). 결정적. get_auto_id 와 update_id 공용.
     fn format_ab_id(m: u64) -> String {
         let digits = (m % 100_000_000) as u32; // 하위 → 숫자 8 (0~99,999,999)
         let letters = ((m / 100_000_000) % (26 * 26)) as u32; // 상위 → 글자 2 (0~675)
@@ -1267,9 +1267,9 @@ impl Config {
 
     pub fn update_id() {
         let id = Self::get_id();
-        // ChainRemote: 충돌(UUID_MISMATCH) 해소용. MAC 파생을 그대로 쓰면 같은 충돌이 재발하므로
-        //   랜덤 AB 형식(같은 공간 26²×10⁸)으로 새로 뽑는다. 기기지문 앵커가 이 ID 변경을 흡수
-        //   (패널이 machine_uuid 로 같은 거래처를 알아보고 remote_id 만 갱신 → 상호 따라옴).
+        // 충돌(UUID_MISMATCH) 해소용. MAC 파생을 다시 쓰면 같은 충돌이 재발하므로 랜덤 AB
+        //   형식(같은 26²×10⁸ 공간)으로 새로 뽑는다. ID 가 바뀌어도 기기지문 앵커가 흡수한다 —
+        //   패널이 machine_uuid 로 같은 거래처를 알아보고 remote_id 만 갱신하므로 상호가 따라온다.
         let mut rng = rand::thread_rng();
         let m: u64 = rng.gen_range(0..(26u64 * 26 * 100_000_000));
         let new_id = Self::format_ab_id(m);
@@ -2741,10 +2741,10 @@ pub fn is_outgoing_only() -> bool {
         .map_or(false, |x| x == ("outgoing"))
 }
 
-/// 옵션 B+ — outgoing-only HQ 빌드인데 `chainremote-allow-incoming` 토글로 incoming 도 받는 PC.
-/// (Chang 집 윈컴, 재성이 컴 — 사무실 Mac → 본인 PC 원격용. 2026-05-21 도입.)
-/// heartbeat 모듈이 이 토글도 게이트로 인정 → 패널 거래처 풀에 살아있음 표시.
-/// 2026-05-29 추가 — 옵션 B+ PC 가 패널에서 "n일 전" 표시되는 결함 해소.
+/// 옵션 B+: outgoing-only HQ 빌드인데 `chainremote-allow-incoming` 토글로 incoming 도 받는 PC.
+/// (Chang 집 윈컴, 재성이 컴 — 사무실 Mac 에서 본인 PC 원격용. 2026-05-21 도입.)
+/// heartbeat 모듈이 이 토글도 게이트로 쳐서 패널 거래처 풀에 살아있음으로 표시된다.
+/// 2026-05-29 추가 — 옵션 B+ PC 가 패널에서 "n일 전"으로 뜨던 결함을 해소.
 #[inline]
 pub fn is_option_b_plus() -> bool {
     if !is_outgoing_only() {
@@ -2754,10 +2754,10 @@ pub fn is_option_b_plus() -> bool {
     val == "Y" || val == "y" || val == "true"
 }
 
-/// 옵션 B+ "빌드 마커" — custom.txt 의 `"option-b-plus":"Y"` (top-level). 설치 시점(install_me)에
-/// HARD_SETTINGS 로 읽힘. 런타임 토글(is_option_b_plus = chainremote-allow-incoming)과 별개.
-/// 이 마커가 있으면 HQ(outgoing) 빌드라도 install_me 가 서비스를 생성 → 로그인 전 incoming
-/// (대리점 HQ 재시작 후 피지원) 가능. 토글은 설치 후 OFF 라 install 시점엔 마커로만 판단 가능.
+/// 옵션 B+ "빌드 마커": custom.txt 의 top-level `"option-b-plus":"Y"`. 설치 시점(install_me)에
+/// HARD_SETTINGS 로 읽힌다. 런타임 토글(is_option_b_plus = chainremote-allow-incoming)과는 별개.
+/// 이 마커가 있으면 HQ(outgoing) 빌드라도 install_me 가 서비스를 만들어 로그인 전에도 incoming
+/// (대리점 HQ 재시작 후 피지원)이 가능하다. 토글은 설치 직후 OFF 라 install 시점엔 마커로만 판단한다.
 #[inline]
 pub fn is_option_b_plus_build() -> bool {
     HARD_SETTINGS
@@ -2767,10 +2767,11 @@ pub fn is_option_b_plus_build() -> bool {
         .map_or(false, |x| x == "Y" || x == "y" || x == "true")
 }
 
-/// 거래처 agent 자가등록(⑤ auto-enroll) — custom.txt 의 top-level 키. 설치 시점 HARD_SETTINGS 로 읽힘.
-/// tenant-slug + enroll-key = per-tenant 인증(평문은 그 tenant agent custom.txt 에만, 서버 DB 엔 enroll-key
-/// 의 sha-256 해시만). customer-name = 인스톨러가 첫설치 시 받은 상호(enroll 시 거래처명; 없으면 빈 문자열).
-/// 셋 다 없으면(옛 빌드) agent 는 enroll 안 하고 register-heartbeat-token 폴백 = 후방호환.
+/// 거래처 agent 자가등록(auto-enroll)용 값. custom.txt 의 top-level 키로, 설치 시점에
+/// HARD_SETTINGS 로 읽힌다. tenant-slug + enroll-key 가 per-tenant 인증이다 — 평문은 해당
+/// tenant agent 의 custom.txt 에만 있고 서버 DB 엔 enroll-key 의 sha-256 해시만 둔다.
+/// customer-name 은 인스톨러가 첫 설치 때 받은 상호(enroll 시 거래처명, 없으면 빈 문자열).
+/// 셋 다 없는 옛 빌드는 enroll 대신 register-heartbeat-token 으로 폴백한다(후방호환).
 #[inline]
 pub fn get_enroll_tenant_slug() -> String {
     HARD_SETTINGS
@@ -3290,10 +3291,10 @@ mod tests {
         assert!(res.is_ok());
     }
 
-    // ChainRemote: AB12345678 ID 형식 — get_auto_id(MAC파생)/update_id(랜덤) 공용 매핑.
+    // AB12345678 ID 형식 — get_auto_id(MAC 파생)와 update_id(랜덤)가 공유하는 매핑.
     #[test]
     fn test_format_ab_id_shape() {
-        // 어떤 입력이든 "대문자2 + 숫자8" 총 10자(0패딩). HQ 표시 형식 "AB 1234 5678" 의 토대.
+        // 어떤 입력이든 "대문자2 + 숫자8"로 총 10자(0패딩). HQ 표시 형식 "AB 1234 5678"의 토대.
         for m in [0u64, 1, 99_999_999, 100_000_000, 12_345_678, u32::MAX as u64, u64::MAX] {
             let id = Config::format_ab_id(m);
             assert_eq!(id.len(), 10, "len for {}: {}", m, id);
@@ -3325,7 +3326,7 @@ mod tests {
 
     #[test]
     fn test_format_ab_id_deterministic() {
-        // 같은 입력(=같은 MAC) → 항상 같은 ID. 재설치/포맷-같은랜카드 ID 불변의 근거.
+        // 같은 입력(=같은 MAC)이면 항상 같은 ID. 재설치/포맷 후에도 같은 랜카드면 ID 가 안 바뀌는 근거.
         let m = 0x0123_4567_89ABu64;
         assert_eq!(Config::format_ab_id(m), Config::format_ab_id(m));
         assert_ne!(Config::format_ab_id(m), Config::format_ab_id(m + 1)); // 다른 MAC → 다른 ID

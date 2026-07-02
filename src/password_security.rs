@@ -75,12 +75,13 @@ pub fn has_valid_password() -> bool {
 }
 
 pub fn approve_mode() -> ApproveMode {
-    // [ChainRemote] 거래처(수신전용=conn-type:incoming) 빌드는 정책상 항상 클릭수락.
-    //   approve-mode 옵션이 custom.txt 미로드 / 서비스 config dir 불일치(LocalService↔LocalSystem) 등으로
-    //   누락되면 기본값 Both 로 무음 강등 → 자동생성 임시비번(has_valid_password=true)이라 수락카드 분기가
-    //   스킵되고, 재접속이 HQ 가 캐시한 임시비번으로 자동수락(영구비번 유령)된다. conn-type=incoming 은
-    //   custom.txt 최상위 HARD_SETTINGS = 취약한 옵션해석과 무관한 빌드 불변값이라 이걸로 강제한다.
-    //   RestartRemoteDevice grace(파일기반)는 approve_mode 와 무관 → 정상 재시작 재접속 1회 자동수락 유지.
+    // 거래처(수신전용=conn-type:incoming) 빌드는 정책상 언제나 클릭수락이다.
+    //   approve-mode 옵션은 custom.txt 미로드나 서비스 config dir 불일치(LocalService↔LocalSystem)
+    //   등으로 누락되면 조용히 기본값 Both 로 떨어진다 → 자동생성 임시비번(has_valid_password=true)
+    //   때문에 수락카드 분기가 건너뛰어지고, 재접속이 HQ 가 캐시한 임시비번으로 자동수락되는
+    //   "영구비번 유령"이 생긴다. conn-type=incoming 은 custom.txt 최상위 HARD_SETTINGS 라 취약한
+    //   옵션 해석과 무관한 빌드 불변값 → 이걸로 강제한다.
+    //   RestartRemoteDevice grace(파일 기반)는 approve_mode 와 별개라 정상 재시작 시 1회 자동수락은 유지된다.
     if crate::config::is_incoming_only() {
         return ApproveMode::Click;
     }
@@ -240,9 +241,9 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
                     keybuf.resize(secretbox::KEYBYTES, 0);
                     let pk_key = secretbox::Key(keybuf.try_into().map_err(|_| ())?);
                     let pk_res = secretbox::open(data, &nonce, &pk_key);
-                    // ChainRemote 진단성 강화 (2026-05-29): 두 키 모두 실패한 케이스만 로그.
-                    // 광범위 비번 다이얼로그 사고 (Chang 우리집 사건 등) 재현 시 단서가 0
-                    // 이라 미궁이었던 점 해소. data 자체는 안 찍어서 평문 노출 risk 없음.
+                    // 진단 로그 (2026-05-29): 두 키가 모두 실패한 경우만 남긴다. 광범위 비번
+                    // 다이얼로그 사고(우리집 사건 등)를 재현할 때 단서가 하나도 없어 미궁이던 걸
+                    // 해소한다. data 자체는 안 찍으므로 평문 노출 위험은 없다.
                     if pk_res.is_err() {
                         crate::log::warn!(
                             "[password_security] symmetric_crypt decrypt failed for both uuid+pk keys (data_len={})",
@@ -252,7 +253,7 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
                     return pk_res;
                 }
             }
-            // pk 없거나 uuid==pk 인 케이스도 진단 가치 — 잘 못 본 시나리오.
+            // pk 가 없거나 uuid==pk 인 경우도 로그로 남긴다 — 드물게 보는 시나리오라 단서가 된다.
             crate::log::warn!(
                 "[password_security] symmetric_crypt decrypt failed; no pk fallback available (data_len={})",
                 data.len()
