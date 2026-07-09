@@ -1034,15 +1034,17 @@ impl Config {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             if let Ok(Some(ma)) = mac_address::get_mac_address() {
-                // MAC 6바이트(48비트) → "AB12345678"(대문자2 + 숫자8, 0패딩). 결정적이라
-                //   같은 MAC 이면 같은 ID 가 나오고 재설치/포맷에도 안정적이다. 공간은
-                //   26²×10⁸ = 676억이라 15만대 규모에서도 충돌은 사실상 0. 표시만 "AB 1234 5678"
-                //   (id_formatter). 기존 9자리 숫자 ID 와 공존한다(둘 다 문자열). 멀티 NIC 는 OS 가
-                //   고른 기본 NIC MAC 을 쓴다(기존 동작 유지).
-                let mut m: u64 = 0;
-                for x in ma.bytes().iter() {
-                    m = (m << 8) | (*x as u64);
-                }
+                // MAC 6바이트(48비트) → sha256 로 섞은 뒤 상위 8바이트를 씨앗으로 →
+                //   "AB12345678"(대문자2 + 숫자8, 0패딩). 여전히 결정적(같은 MAC → 항상 같은
+                //   ID, 재설치/포맷에도 안정)이지만, MAC 을 그대로 접지 않고 해시를 거쳐서
+                //   순차 MAC(같은 제조사 배치로 대량생산되는 POS 의 순차 NIC — OKPOS/포스뱅크
+                //   등)이 순차 ID 로 그대로 노출되던 문제를 없앤다(2026-07-09, 인접 ID GN5084
+                //   0785/0786 실사례로 발견). format_ab_id 자체(출력형식·공간)는 불변이라
+                //   소비처(id_formatter/hbbs/패널 등) cascade 없음 — 씨앗 생성 방식만 바뀜.
+                //   이미 ID 를 발급받은 기존 설치본은 config 에 영속된 값만 읽어 무영향(신규
+                //   설치에만 적용). 실충돌(문제2, MAC 48비트→676억 4158배 축소로 다른 두
+                //   머신이 같은 ID)은 이 변경으로 안 풀림 — 그건 기기지문 앵커의 몫(별도).
+                let m = Self::mac_to_seed(&ma.bytes());
                 let id = Self::format_ab_id(m);
                 log::info!("Generated id {}", id);
                 Some(id)
@@ -1050,6 +1052,20 @@ impl Config {
                 None
             }
         }
+    }
+
+    /// MAC 6바이트 → sha256 → 상위 8바이트를 u64 씨앗으로. get_auto_id 에서 분리 —
+    /// 실제 하드웨어 MAC 없이도(합성 순차 MAC 등) 유닛테스트로 검증하기 위함.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn mac_to_seed(mac_bytes: &[u8]) -> u64 {
+        let mut hasher = Sha256::new();
+        hasher.update(mac_bytes);
+        let hash = hasher.finalize();
+        let mut m: u64 = 0;
+        for b in &hash[..8] {
+            m = (m << 8) | (*b as u64);
+        }
+        m
     }
 
     /// 48비트 값 → "AB12345678"(대문자 2 + 숫자 8, 0패딩). 결정적. get_auto_id 와 update_id 공용.
@@ -3330,6 +3346,45 @@ mod tests {
         let m = 0x0123_4567_89ABu64;
         assert_eq!(Config::format_ab_id(m), Config::format_ab_id(m));
         assert_ne!(Config::format_ab_id(m), Config::format_ab_id(m + 1)); // 다른 MAC → 다른 ID
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[test]
+    fn test_mac_to_seed_deterministic() {
+        // 씨앗도 같은 MAC → 항상 같은 값(get_auto_id 의 재설치 안정성 전제 유지).
+        let mac = [0x00, 0x1A, 0x2B, 0x00, 0x07, 0x85];
+        assert_eq!(Config::mac_to_seed(&mac), Config::mac_to_seed(&mac));
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[test]
+    fn test_mac_to_seed_breaks_sequential_adjacency() {
+        // ★2026-07-09 사고 재현+수정검증: OKPOS/포스뱅크 같은 제조사가 클론 이미지로 대량생산한
+        //   POS 는 NIC MAC 이 순차 발급된다(...0785, ...0786 처럼 마지막 옥텟만 +1). 옛
+        //   get_auto_id(해시 없이 MAC 을 그대로 접음)는 이 순차성을 AB ID 에 그대로 노출시켜
+        //   실제로 GN50840785/GN50840786 인접 ID 사고가 났다(신교령/큰통 오인 즐겨찾기의 발단).
+        //   sha256 확산 후에는 MAC 이 1씩만 달라도 씨앗이 완전히 흩어져야 한다.
+        let base = [0x00, 0x1A, 0x2B, 0x50, 0x84, 0x00];
+        let mut ids = Vec::new();
+        for last in 0u8..20 {
+            let mut mac = base;
+            mac[5] = last; // 마지막 옥텟만 순차 증가 = 클론배치 순차 NIC 시뮬레이션
+            let seed = Config::mac_to_seed(&mac);
+            ids.push(Config::format_ab_id(seed));
+        }
+        // (a) 전부 유일 — 해시 확산으로 국소 충돌도 없어야 정상(626억 공간에 20개는 충돌 사실상 0).
+        let mut uniq = ids.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), ids.len(), "순차 MAC 20개가 서로 다른 ID 를 받아야 함: {:?}", ids);
+        // (b) 숫자부(마지막 8자리)가 인접 정수로 안 나와야 함 — 옛 코드였다면 이웃 MAC 이 이웃
+        //     숫자를 만들어(0785/0786 처럼) 사람이 헷갈렸다. 연속된 두 ID 의 숫자부 차이가 1인
+        //     쌍이 하나라도 있으면 인접성이 남아있다는 뜻이라 실패.
+        let digit_of = |id: &str| -> i64 { id[2..].parse().unwrap() };
+        for w in ids.windows(2) {
+            let diff = (digit_of(&w[1]) - digit_of(&w[0])).abs();
+            assert_ne!(diff, 1, "순차 MAC 이 여전히 인접 숫자ID 를 만듦(수정 실패): {} vs {}", w[0], w[1]);
+        }
     }
 
     #[test]
