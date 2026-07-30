@@ -1431,6 +1431,65 @@ pub fn rename_file(path: &str, new_name: &str) -> ResultType<()> {
     }
 }
 
+// ChainRemote: 파일매니저 붙여넣기(같은 쪽 내부 복사/이동). src(파일 or 디렉터리)를 dst 전체
+//   경로로. is_move 는 rename 우선(같은 볼륨 즉시) → 실패 시 복사+원본삭제 폴백(크로스 볼륨).
+//   자기 자신/자기 하위로의 복사는 무한 재귀가 되므로 거부. 덮어쓰기는 상위(UI)가 이름 충돌을
+//   피해 dst 를 만들어 보내는 전제라 여기선 dst 존재 시 거부(정책 단순화 + 실수 덮어쓰기 방지).
+pub fn copy_path(src: &str, dst: &str, is_move: bool) -> ResultType<()> {
+    validate_fs_path_argument(src, "source path")?;
+    validate_fs_path_argument(dst, "destination path")?;
+    let src_p = Path::new(src);
+    let dst_p = Path::new(dst);
+    if !src_p.exists() {
+        bail!("{src:?} not exists");
+    }
+    if dst_p.exists() {
+        bail!("Already exists");
+    }
+    let src_canon = std::fs::canonicalize(src_p)?;
+    if let Some(dst_parent) = dst_p.parent() {
+        if let Ok(dst_parent_canon) = std::fs::canonicalize(dst_parent) {
+            if dst_parent_canon.starts_with(&src_canon) && src_p.is_dir() {
+                bail!("Cannot copy a directory into itself");
+            }
+        }
+    }
+    if is_move {
+        if std::fs::rename(src_p, dst_p).is_ok() {
+            return Ok(());
+        }
+    }
+    copy_path_recursive(src_p, dst_p)?;
+    if is_move {
+        if src_p.is_dir() {
+            std::fs::remove_dir_all(src_p)?;
+        } else {
+            std::fs::remove_file(src_p)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_path_recursive(src: &Path, dst: &Path) -> ResultType<()> {
+    if src.is_dir() {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            let to = dst.join(entry.file_name());
+            if ty.is_dir() {
+                copy_path_recursive(&entry.path(), &to)?;
+            } else if ty.is_file() {
+                std::fs::copy(entry.path(), to)?;
+            }
+            // 심링크는 조용히 스킵 — POS 환경엔 사실상 없고, 따라가면 루프/탈출 위험만 있다.
+        }
+    } else {
+        std::fs::copy(src, dst)?;
+    }
+    Ok(())
+}
+
 #[inline]
 pub fn transform_windows_path(entries: &mut Vec<FileEntry>) {
     for entry in entries {

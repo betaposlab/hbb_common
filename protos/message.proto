@@ -402,6 +402,22 @@ message FileRename {
   string new_name = 3;
 }
 
+// ChainRemote: 원격 파일매니저 내부 복사/이동(붙여넣기) — src 를 dst(전체 경로)로.
+//   is_move=잘라내기. 응답은 기존 FileResponse done/error 를 id 로 재사용.
+message FileCopy {
+  int32 id = 1;
+  string src = 2;
+  string dst = 3;
+  bool is_move = 4;
+}
+
+// ChainRemote: 원격 파일 실행 — 연결 프로그램으로 open (셸 기본동작).
+//   세션 자체가 거래처 클릭 수락을 거친 전권이라 별도 게이트는 없고, CM 이 파일로그를 남긴다.
+message FileExecute {
+  int32 id = 1;
+  string path = 2;
+}
+
 message FileAction {
   oneof union {
     ReadDir read_dir = 1;
@@ -415,6 +431,9 @@ message FileAction {
     FileTransferSendConfirmRequest send_confirm = 9;
     FileRename rename = 10;
     ReadEmptyDirs read_empty_dirs = 11;
+    // ChainRemote 확장 (1.4.73+). 옛 피어는 unknown field 로 무시 — HQ 가 버전 게이트.
+    FileCopy copy = 12;
+    FileExecute execute = 13;
   }
 }
 
