@@ -411,14 +411,13 @@ message FileCopy {
   bool is_move = 4;
 }
 
-// ChainRemote: 원격 파일 실행 — 연결 프로그램으로 open (셸 기본동작).
-//   세션 자체가 거래처 클릭 수락을 거친 전권이라 별도 게이트는 없고, CM 이 파일로그를 남긴다.
-message FileExecute {
-  int32 id = 1;
-  string path = 2;
-}
-
 message FileAction {
+  // 13 = 폐기된 FileExecute(원격 파일 실행, 1.4.73~1.4.80). 번호 재사용 금지.
+  //   셸 실행은 권한 상승 UI 를 띄우려면 메시지 펌프가 도는 STA 스레드를 요구하는데
+  //   에이전트의 파일 작업은 워커 스레드에서 돌아, 첫 호출이 창도 못 띄우고 취소로 끝나는
+  //   비결정적 동작이 남았다(2026-07-31 Win7 실측). 본사는 화면 제어로 원격 탐색기에서
+  //   직접 실행할 수 있으므로 이득이 없고, 원격 실행 표면만 남는다 — 프로토콜에서 걷어냈다.
+  reserved 13;
   oneof union {
     ReadDir read_dir = 1;
     FileTransferSendRequest send = 2;
@@ -433,7 +432,6 @@ message FileAction {
     ReadEmptyDirs read_empty_dirs = 11;
     // ChainRemote 확장 (1.4.73+). 옛 피어는 unknown field 로 무시 — HQ 가 버전 게이트.
     FileCopy copy = 12;
-    FileExecute execute = 13;
   }
 }
 
