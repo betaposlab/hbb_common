@@ -160,7 +160,7 @@ const CHARS: &[char] = &[
     'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
-pub const RENDEZVOUS_SERVERS: &[&str] = &["sepani.synology.me"];
+pub const RENDEZVOUS_SERVERS: &[&str] = &["rs.626.kr"];
 pub const RS_PUB_KEY: &str = "C2bqeqG0Nb0EQgmtomhzcykw69gRvbSLKfm019r1C8Y=";
 
 pub const RENDEZVOUS_PORT: i32 = 21116;
