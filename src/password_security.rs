@@ -83,7 +83,17 @@ pub fn approve_mode() -> ApproveMode {
     //   옵션 해석과 무관한 빌드 불변값 → 이걸로 강제한다.
     //   RestartRemoteDevice grace(파일 기반)는 approve_mode 와 별개라 정상 재시작 시 1회 자동수락은 유지된다.
     if crate::config::is_incoming_only() {
-        return ApproveMode::Click;
+        // ★예외는 단 하나 — custom.txt 최상위에 unattended=Y 가 명시적으로 박힌 빌드.
+        //   패널에서 그 대리점의 [무인접속 허용] 을 켜야만 나가는 값이고, 기본은 꺼짐이다.
+        //   가맹점 설치본에는 이 키가 아예 없으므로 위 사고 경로(옵션 누락 → 조용히 Both)가
+        //   여기서도 그대로 막힌다. 옵션 해석 결과를 보지 않고 바로 판정하는 것도 같은 이유다.
+        //   Both 인 이유(Password 가 아니라): 영구비번이 없거나 틀리면 수락창으로 폴백해
+        //   최소한 사람이 개입할 여지가 남는다.
+        return if crate::config::is_unattended_agent() {
+            ApproveMode::Both
+        } else {
+            ApproveMode::Click
+        };
     }
     let mode = Config::get_option("approve-mode");
     if mode == "password" {
@@ -264,6 +274,46 @@ pub fn symmetric_crypt(data: &[u8], encrypt: bool) -> Result<Vec<u8>, ()> {
 }
 
 mod test {
+    /// approve_mode() 회귀 잠금.
+    ///
+    /// 이 함수는 거래처 37곳이 전부 지나가는 길이다. 여기가 실수로 Both 로 뒤집히면
+    /// 화면에 보이는 변화가 없어서(수락창이 안 뜨는 걸 "빨라졌네"로 읽는다) 한참 모른다.
+    /// 그래서 "가맹점 빌드는 어떤 조합에서도 Click" 을 조합별로 다 확인한다.
+    ///
+    /// HARD_SETTINGS 는 전역이라 각 케이스마다 직접 세팅하고 끝나면 되돌린다.
+    #[test]
+    fn approve_mode_incoming_is_click_unless_explicitly_unattended() {
+        use super::*;
+        use crate::config::HARD_SETTINGS;
+
+        fn set(pairs: &[(&str, &str)]) {
+            let mut h = HARD_SETTINGS.write().unwrap();
+            h.clear();
+            for (k, v) in pairs {
+                h.insert(k.to_string(), v.to_string());
+            }
+        }
+
+        // ── 가맹점 설치본: 어떤 조합에서도 Click ──────────────────────────
+        set(&[("conn-type", "incoming")]);
+        assert_eq!(approve_mode(), ApproveMode::Click, "평범한 거래처 설치본");
+
+        // 오타·유사값은 전부 닫힌 쪽으로 떨어져야 한다.
+        for bad in ["y", "N", "true", "1", "", "yes", "Y "] {
+            set(&[("conn-type", "incoming"), ("unattended", bad)]);
+            assert_eq!(
+                approve_mode(),
+                ApproveMode::Click,
+                "unattended={bad:?} 는 열리면 안 된다"
+            );
+        }
+
+        // ── 무인접속 전용 빌드만 예외 ────────────────────────────────────
+        set(&[("conn-type", "incoming"), ("unattended", "Y")]);
+        assert_eq!(approve_mode(), ApproveMode::Both, "무인접속 빌드");
+
+        set(&[]); // 뒷정리 — 다른 테스트에 전역 상태를 흘리지 않는다.
+    }
 
     #[test]
     fn test() {

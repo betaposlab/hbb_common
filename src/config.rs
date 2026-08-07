@@ -2748,6 +2748,25 @@ pub fn is_incoming_only() -> bool {
         .map_or(false, |x| x == ("incoming"))
 }
 
+/// 무인접속 전용 에이전트 빌드인가. 켜져 있으면 그 기기만 수락 클릭 없이 접속을 받는다.
+///
+/// ★거래처(가맹점) 설치본은 절대 여기 해당되면 안 된다. 그래서 판별을 `approve-mode`
+/// 옵션이 아니라 **HARD_SETTINGS(custom.txt 최상위)** 로 둔다 — `conn-type` 과 같은 급이다.
+/// approve-mode 같은 일반 옵션은 custom.txt 미로드나 서비스 config dir 불일치로 조용히
+/// 누락될 수 있고, 그러면 기본값이 Both 로 떨어져 문이 열린다(2026-05 "영구비번 유령" 사고).
+/// 최상위 키는 그런 경로로 생기지 않는다 — 없으면 없는 것이고, 없으면 닫힌다.
+///
+/// 값 비교를 "Y" 하나로 엄격히 한다. 오타("y"/"true"/"1")는 전부 false 로 떨어지는데,
+/// 그 방향이 안전한 방향이다(열려서 새는 것보다 안 열리는 게 낫다).
+#[inline]
+pub fn is_unattended_agent() -> bool {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("unattended")
+        .map_or(false, |x| x == "Y")
+}
+
 #[inline]
 pub fn is_outgoing_only() -> bool {
     HARD_SETTINGS
