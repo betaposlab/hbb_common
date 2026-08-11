@@ -881,7 +881,36 @@ message Misc {
     DisplayResolution change_display_resolution = 36;
     MessageQuery message_query = 37;
     int32 follow_current_display = 38;
+    // ChainRemote: 원격 화면 마킹(자유선). 본사가 그린 선을 거래처 화면 오버레이에 띄운다.
+    //   설명 중 "여기 보세요"를 말로만 하던 걸 화면에 남기려는 것 — 상류의 whiteboard 는
+    //   커서 위치만 실시간으로 그리고 남기지 않아서 마킹 용도로는 못 쓴다.
+    CrAnnotate cr_annotate = 39;
   }
+}
+
+// ChainRemote 마킹 한 묶음. 점은 원격 디스플레이의 픽셀 좌표다(뷰어가 배율을 풀어 보낸다).
+//   한 점씩 보내면 프레임마다 메시지가 날아가므로 뷰어가 몇 개씩 묶어 보낸다.
+message CrAnnotate {
+  enum Op {
+    // points 를 이어 그린다.
+    DRAW = 0;
+    // 전부 지운다(그리기 모드는 유지).
+    CLEAR = 1;
+    // 그리기 모드 종료 — 거래처 쪽 오버레이를 내린다.
+    STOP = 2;
+  }
+  Op op = 1;
+  repeated CrPoint points = 2;
+  // 0xAARRGGBB.
+  uint32 argb = 3;
+  float width = 4;
+  // 이 묶음이 한 획의 끝(마우스를 뗐다). 다음 점은 새 획으로 시작한다.
+  bool end_stroke = 5;
+}
+
+message CrPoint {
+  float x = 1;
+  float y = 2;
 }
 
 message VoiceCallRequest {
