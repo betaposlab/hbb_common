@@ -88,6 +88,12 @@ message LoginRequest {
   string my_platform = 13;
   bytes hwid = 14;
   string avatar = 17;
+  // ChainRemote 예약원격: 접속과 동시에 시간 창을 제안한다.
+  //   원격 중이 아닌 거래처에는 보낼 세션이 없다 — 그래서 접속 요청 자체에 싣는다.
+  //   거래처는 평소 수락 카드 대신 시간 카드를 띄우고, 사장님이 [수락]을 누르면
+  //   **그 한 번으로 창이 열리고 세션도 시작된다**(사장님이 두 번 누르지 않게).
+  //   ★옛 에이전트는 unknown field 로 무시하므로 평소 수락 카드가 뜬다 — 안전한 강등이다.
+  CrSchedReq cr_sched_req = 18;
 }
 
 message Terminal {
@@ -889,7 +895,36 @@ message Misc {
     //   같이 닫아 포스 화면을 돌려준다(2026-08-14 Chang 요구). 세션 자체는 그대로다.
     //   ★옛 에이전트는 unknown field 로 조용히 무시한다 — 자기 타이머로만 접힌다.
     CrChatPanel cr_chat_panel = 40;
+    // ChainRemote 예약원격: 본사가 "이 시간대에 수락 없이 들어오겠다"를 제안한다.
+    //   ★옛 에이전트는 unknown field 로 조용히 무시한다 — 카드가 안 뜰 뿐 세션은 멀쩡하다.
+    //     그래서 HQ 는 버전을 보고 버튼을 감추되, 감추기에 실패해도 사고가 안 난다.
+    CrSchedReq cr_sched_req = 41;
+    // 거래처의 답(수락/거부). 기사가 "눌렀는지"를 알아야 전화를 다시 걸지 판단한다.
+    CrSchedResp cr_sched_resp = 42;
   }
+}
+
+// ChainRemote 예약원격 제안. 시각은 **거래처 PC 시계와 무관하게** 본사 기준 epoch(초)다.
+//   거래처 화면에 보여줄 문구는 뷰어가 만들어 보낸다(label) — 포스 시계가 틀려도 사장님이
+//   보는 글자는 약속한 그 시각이어야 하기 때문이다.
+message CrSchedReq {
+  // 창의 시작·종료 (unix epoch 초, 본사 시계 기준)
+  int64 start = 1;
+  int64 end = 2;
+  // 사장님에게 보여줄 사람 말 — 예: "8월 18일 오후 11시 ~ 8월 19일 오전 3시"
+  string label = 3;
+  // 이미 열린 창을 늘리는 요청인가(카드 문구가 '연장'으로 바뀐다)
+  bool extend = 4;
+  // ★본사의 현재 시각. 거래처 PC 시계가 틀린 경우를 보정하려고 같이 보낸다.
+  //   32비트 Win7 포스는 시계가 자주 어긋나는데, 그걸 그대로 믿으면 시계가 3일 뒤처진
+  //   기기에서 창이 3일 열린다. 거래처는 (hq_now - 자기 시각)만큼 어긋난 걸 알아내
+  //   start/end 를 자기 시간축으로 옮겨 놓는다.
+  int64 hq_now = 5;
+}
+
+// ChainRemote 예약원격 응답.
+message CrSchedResp {
+  bool accepted = 1;
 }
 
 // ChainRemote 본사 채팅창 상태. 거래처 CM 의 채팅 영역을 따라 열고 닫는다.
