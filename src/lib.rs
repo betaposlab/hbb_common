@@ -312,6 +312,35 @@ pub fn get_exe_time() -> SystemTime {
     })
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+static CACHED_MACHINE_UID: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+/// 기기 지문(MachineGuid)을 지금 읽을 수 있는가. 한 번 읽히면 프로세스가 끝날 때까지 참.
+///
+/// get_uuid 는 못 읽으면 공개키로 조용히 폴백한다 — ID 암호화 키로는 그래도 되지만,
+/// "지문으로 잠근 enc_id 를 못 푼 것"과 "ID 가 깨진 것"은 다른 일이다. Config::load 가
+/// 그 둘을 가르는 데 이 함수를 쓴다. 배경은 config.rs 의 ID_DEGRADED 주석.
+pub fn machine_uid_available() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if CACHED_MACHINE_UID.get().is_some() {
+            return true;
+        }
+        match machine_uid::get() {
+            Ok(id) => {
+                let uid: Vec<u8> = id.into();
+                let _ = CACHED_MACHINE_UID.set(uid);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        true
+    }
+}
+
 /// Known cases where machine_uid::get() may fail:
 /// - Windows shutdown: "The media is write protected. (os error 19)"
 /// - macOS (hard to reproduce, reproduced at login screen): "No matching IOPlatformUUID in `ioreg -rd1 -c IOPlatformExpertDevice` command"
@@ -320,7 +349,6 @@ pub fn get_uuid() -> Vec<u8> {
     {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        static CACHED_MACHINE_UID: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
         // Throttle only applies to the fallback machine_uid::get() log below, not the Once::call_once retry logs.
         static LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
 

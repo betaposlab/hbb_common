@@ -99,6 +99,21 @@ lazy_static::lazy_static! {
 type Size = (i32, i32, i32, i32);
 type KeyPair = (Vec<u8>, Vec<u8>);
 
+/// ★ID 가 "읽을 수 없음" 상태로 뜬 프로세스 — 저장된 enc_id 를 절대 덮어쓰지 않는다.
+///
+/// 2026-09-15 삼성공판장 사고: 포스가 22:04 에 재부팅되고 2분 뒤(=하트비트 첫 tick, 이
+/// 프로세스가 Config 를 처음 여는 순간) 다시 꺼졌다. 윈도우는 종료 중에 MachineGuid 읽기를
+/// "쓰기 방지된 미디어(os error 19)"로 거절한다. 지문 없이는 enc_id 를 못 푸니 상류 코드는
+/// "ID 가 깨졌다"고 보고 새 ID 를 만들어 **디스크에 저장**했다. 23206458 → BD77537281.
+/// 그 뒤 하트비트는 영원히 409(패널에 없는 ID), HQ 는 오프라인, 아무 알림도 없이 15일.
+///
+/// 지문을 못 읽은 건 ID 가 잘못된 게 아니다. 그 경우 이 플래그를 세우고
+///   - 이번 실행에서만 쓸 ID 를 MAC 에서 만들어 메모리에 들고(AB 형식 거래처는 원래 ID 와 같다),
+///   - store() 는 enc_id 를 파일에 있던 그대로 둔다.
+/// 다음 부팅에 지문이 읽히면 원래 ID 가 그대로 풀린다. 옛 숫자 ID(2026-06 이전 설치 16대)가
+/// 이 보호의 실제 수혜자다 — AB 형식은 재생성해도 같은 값이라 애초에 안 다친다.
+static ID_DEGRADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 lazy_static::lazy_static! {
     static ref CONFIG: RwLock<Config> = RwLock::new(Config::load());
     static ref CONFIG2: RwLock<Config2> = RwLock::new(Config2::load());
@@ -625,6 +640,16 @@ impl Config {
             config.id = id;
             id_valid = true;
             store |= store2;
+        } else if !config.enc_id.is_empty() && !crate::machine_uid_available() {
+            // 지문을 못 읽어 enc_id 를 못 푼 것 — ID_DEGRADED 주석 참조. 재생성·저장 금지.
+            ID_DEGRADED.store(true, std::sync::atomic::Ordering::SeqCst);
+            config.id = Config::gen_id().unwrap_or_default();
+            id_valid = true;
+            store = false;
+            log::error!(
+                "machine uid unavailable; enc_id kept untouched, using in-memory id {} for this run",
+                config.id
+            );
         } else if
         // Comment out for forward compatible
         // crate::get_modified_time(&Self::file_(""))
@@ -695,7 +720,13 @@ impl Config {
     fn store(&self) {
         let mut config = self.clone();
         Self::migrate_permanent_password_to_hashed_storage(&mut config);
-        config.enc_id = encrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+        if ID_DEGRADED.load(std::sync::atomic::Ordering::SeqCst) && !self.enc_id.is_empty() {
+            // 지문 없이 뜬 실행 — 메모리의 임시 ID 를 enc_id 에 덮어쓰면 원래 ID 가 사라진다.
+            config.enc_id = self.enc_id.clone();
+        } else {
+            config.enc_id =
+                encrypt_str_or_original(&config.id, PASSWORD_ENC_VERSION, ENCRYPT_MAX_LEN);
+        }
         config.id = "".to_owned();
         Config::store_(&config, "");
     }
