@@ -901,7 +901,29 @@ message Misc {
     CrSchedReq cr_sched_req = 41;
     // 거래처의 답(수락/거부). 기사가 "눌렀는지"를 알아야 전화를 다시 걸지 판단한다.
     CrSchedResp cr_sched_resp = 42;
+    // ChainRemote 윈도우 도구: 본사가 거래처 화면에 장치 관리자 등 정해진 도구를 띄운다.
+    //   ★옛 에이전트는 unknown field 로 무시한다 — HQ 가 버전을 보고 메뉴를 감춘다.
+    CrWinTool cr_win_tool = 43;
   }
+}
+
+// ChainRemote 윈도우 도구. **번호만** 보낸다 — 명령 문자열을 실을 자리를 일부러 두지 않았다.
+//   무엇을 어떻게 띄울지는 에이전트의 고정 표(src/chainremote_wintool.rs)가 정한다.
+//   번호를 추가하면 그 표와 HQ 메뉴를 같이 고친다. 모르는 번호는 에이전트가 거절한다.
+message CrWinTool {
+  enum Tool {
+    DEVICE_MANAGER = 0;
+    PRINTERS = 1;
+    SERVICES = 2;
+    TASK_MANAGER = 3;
+    NETWORK = 4;
+    SOUND = 5;
+    DATE_TIME = 6;
+    PROGRAMS = 7;
+    EVENT_VIEWER = 8;
+    SYSTEM_INFO = 9;
+  }
+  Tool tool = 1;
 }
 
 // ChainRemote 예약원격 제안. 시각은 **거래처 PC 시계와 무관하게** 본사 기준 epoch(초)다.
